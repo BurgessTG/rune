@@ -127,6 +127,8 @@ fn set(window: &winit::window::Window, cloaked: bool) -> bool {
 fn activate(window: &winit::window::Window) {
     let Some(hwnd) = super::hwnd(window) else { return };
     if std::env::var_os("IB3_NO_ACTIVATE").is_some() { return; }
+    if std::env::var_os("IB3_ACT_SHOW").is_some() { unsafe { windows_sys::Win32::UI::WindowsAndMessaging::ShowWindow(hwnd, windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOW); } return; }
+    if std::env::var_os("IB3_ACT_SETPOS").is_some() { unsafe { windows_sys::Win32::UI::WindowsAndMessaging::SetWindowPos(hwnd, std::ptr::null_mut(), 0, 0, 0, 0, windows_sys::Win32::UI::WindowsAndMessaging::SWP_NOMOVE | windows_sys::Win32::UI::WindowsAndMessaging::SWP_NOSIZE); } return; }
     // SAFETY: a window this thread owns; a launch by the user lets this process take the foreground.
     unsafe { windows_sys::Win32::UI::WindowsAndMessaging::SetForegroundWindow(hwnd); }
     crate::marks::mark("window.activated");
