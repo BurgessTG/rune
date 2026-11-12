@@ -48,6 +48,7 @@ impl<S: 'static> AnyHost for Host<S> {
     // What reaches the app's state runs in its turn scope (`App::turn_scope`).
     fn terminate(&mut self) { self.in_turn(Self::terminate_in_turn) }
     fn quit_hook(&mut self) { self.in_turn(Self::quit_hook_in_turn) }
+    fn may_quit(&mut self, event_loop: &ActiveEventLoop) -> bool { self.in_turn(|h| h.may_quit_in_turn(event_loop)) }
     fn cancel_menus(&mut self) { self.in_turn(Self::cancel_menus_in_turn) }
     fn reopen_hook(&mut self, event_loop: &ActiveEventLoop, has_visible_windows: bool) -> bool {
         self.in_turn(|h| h.reopen_hook_in_turn(event_loop, has_visible_windows))
@@ -115,6 +116,17 @@ impl<S: 'static> Host<S> {
         // Before the loop ends or the session does: a lock or clear must reach the worker.
         self.clipboard.flush(&mut self.rt);
         if let Some(w) = self.win.as_ref().filter(|w| w.visible) { w.request_redraw(); }
+    }
+
+    fn may_quit_in_turn(&mut self, event_loop: &ActiveEventLoop) -> bool {
+        let Some(f) = self.should_quit.filter(|_| self.started && !self.finished) else { return true };
+        // As an update, so its frame, wakes and window requests go as an update's do.
+        let may = Arc::new(AtomicBool::new(true));
+        let answer = may.clone();
+        self.shared.queue_update(Box::new(move |s, tx| { answer.store(f(s, tx), Ordering::Relaxed); true }));
+        self.drain(event_loop, false);
+        self.publish();
+        may.load(Ordering::Relaxed)
     }
 
     fn cancel_menus_in_turn(&mut self) {

@@ -65,6 +65,7 @@ pub struct App<S: 'static> {
     pub(crate) standard_menus: bool,
     pub(crate) keep_running: bool,
     pub(crate) should_close: Option<fn(&mut S, &mut Tx) -> bool>,
+    pub(crate) should_quit: Option<fn(&mut S, &mut Tx) -> bool>,
     pub(crate) on_close: Option<fn(&mut S, &mut Tx)>,
     pub(crate) on_quit: Option<fn(&mut S, &mut Tx)>,
     pub(crate) turn_scope: Option<TurnScope<S>>,
@@ -121,6 +122,7 @@ impl<S: 'static> App<S> {
             standard_menus: false,
             keep_running: false,
             should_close: None,
+            should_quit: None,
             on_close: None,
             on_quit: None,
             turn_scope: None,
@@ -408,6 +410,16 @@ impl<S: 'static> App<S> {
     /// (`Tx::quit`, `AppHandle::quit`, macOS Quit, the session ending).
     pub fn should_close(mut self, f: fn(&mut S, &mut Tx) -> bool) -> Self {
         self.should_close = Some(f);
+        self
+    }
+
+    /// Asked before macOS quits the app for the user (⌘Q, the app menu's or the Dock's Quit):
+    /// false cancels that quit and the app runs on, so an app with unsaved work can ask first and
+    /// quit later with `Tx::quit`. What it changes shows in the window's next frame. A logout,
+    /// restart or shutdown, `Tx::quit`, `AppHandle::quit` and the last window closing don't ask,
+    /// and nothing asks on other systems.
+    pub fn should_quit(mut self, f: fn(&mut S, &mut Tx) -> bool) -> Self {
+        self.should_quit = Some(f);
         self
     }
 

@@ -25,6 +25,19 @@ impl Windows {
         }
     }
 
+    /// macOS asked to quit for the user and Rune cancelled it (`crate::quit`): the windows'
+    /// `App::should_quit` answer in turn, and the first refusal keeps the app running. Otherwise
+    /// the app quits as macOS would have quit it: the hooks run, then the windows close as their
+    /// close buttons would, without asking `App::should_close`.
+    pub(super) fn ask_quit(&mut self, event_loop: &ActiveEventLoop) {
+        if event_loop.exiting() || crate::quit::quitting() { return; }
+        if !self.hosts.iter_mut().flatten().all(|host| host.may_quit(event_loop)) { return; }
+        if event_loop.exiting() { return; }
+        self.quit(event_loop, false);
+        for host in self.hosts.iter_mut().flatten() { host.terminate(); }
+        event_loop.exit();
+    }
+
     /// The app was reopened: every `on_reopen` hook runs, then, unless one handled it or the
     /// app is an accessory, the default brings back a window when none shows (`reopen::target`).
     pub(super) fn reopen(&mut self, event_loop: &ActiveEventLoop) {

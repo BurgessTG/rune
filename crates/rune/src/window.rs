@@ -99,6 +99,10 @@ pub(crate) enum WakeEvent {
     /// with `true` the session ends now and the windows close.
     #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
     Quit(bool),
+    /// macOS asked to quit and Rune cancelled it, so the windows' `App::should_quit` can answer
+    /// in the loop (`Windows::ask_quit`).
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    AskQuit,
     /// An assistive client asked something of a surface's accessibility tree (`crate::a11y`):
     /// the host answers at the end of the turn this wakes.
     #[cfg_attr(not(feature = "accessibility"), allow(dead_code))]
@@ -125,6 +129,8 @@ pub(crate) trait AnyHost {
     fn terminate(&mut self) {}
     /// The app starts to quit: runs `App::on_quit`, unless the window already closed.
     fn quit_hook(&mut self) {}
+    /// Asks `App::should_quit` whether the app may quit for the user; true without one.
+    fn may_quit(&mut self, _event_loop: &ActiveEventLoop) -> bool { true }
     /// Ends a tracking pop-up menu and answers waiting ones `None`, before the host drops or
     /// the loop exits.
     fn cancel_menus(&mut self) {}
@@ -298,7 +304,9 @@ impl ApplicationHandler<WakeEvent> for Windows {
             crate::open_url::instance::on_relaunch(move || proxy.send_event(WakeEvent::Reopen).is_ok());
         }
         let proxy = self.proxy.clone();
-        crate::quit::install(move |ending| proxy.send_event(WakeEvent::Quit(ending)).is_ok());
+        let ask = proxy.clone();
+        crate::quit::install(move |ending| proxy.send_event(WakeEvent::Quit(ending)).is_ok(),
+            move || ask.send_event(WakeEvent::AskQuit).is_ok());
         crate::open_url::incoming::settle();
         // A window opened at launch took it; a GPU kept for a later one would sit idle until then.
         crate::render::discard_prewarm();
@@ -317,6 +325,11 @@ impl ApplicationHandler<WakeEvent> for Windows {
             }
             WakeEvent::Quit(ending) => {
                 self.quit(event_loop, *ending);
+                self.cleanup(event_loop);
+                return;
+            }
+            WakeEvent::AskQuit => {
+                self.ask_quit(event_loop);
                 self.cleanup(event_loop);
                 return;
             }
@@ -393,6 +406,7 @@ struct Host<S: 'static> {
     args: Args,
     keep_running: bool,
     should_close: Option<fn(&mut S, &mut Tx) -> bool>,
+    should_quit: Option<fn(&mut S, &mut Tx) -> bool>,
     on_close: Option<fn(&mut S, &mut Tx)>,
     on_quit: Option<fn(&mut S, &mut Tx)>,
     /// `App::turn_scope`, and whether a turn is in it now.
@@ -476,7 +490,8 @@ impl<S: 'static> Host<S> {
             let _ = proxy.send_event(WakeEvent::App(slot));
         });
         let (open, keep_running, on_close, release_gpu) = (app.open, app.keep_running, app.on_close, app.release_gpu);
-        let should_close = app.should_close;
+        let (should_close, should_quit) = (app.should_close, app.should_quit);
+        if should_quit.is_some() { crate::quit::asks(); }
         let (on_reopen, on_quit, turn_scope) = (app.on_reopen, app.on_quit, app.turn_scope);
         #[cfg(target_os = "macos")]
         let present_log = args.trace.as_ref().map(|_| Arc::default());
@@ -557,6 +572,7 @@ impl<S: 'static> Host<S> {
             args,
             keep_running,
             should_close,
+            should_quit,
             on_close,
             on_quit,
             turn_scope,

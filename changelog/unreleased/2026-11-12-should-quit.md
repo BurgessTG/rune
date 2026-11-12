@@ -1,0 +1,1 @@
+- **An app can refuse a macOS quit:** `App::should_quit` runs before ⌘Q, the app menu's Quit or the Dock's Quit ends the app. Returning false cancels that quit and the app runs on, so an app with unsaved work can show its prompt and quit later with `Tx::quit`. A logout, restart or shutdown doesn't ask (#174).

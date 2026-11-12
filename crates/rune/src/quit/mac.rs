@@ -3,35 +3,63 @@
 //! method to the delegate's class once (as `platform::reopen` does for reopening). It marks the
 //! app quitting and lets the quit go ahead; `applicationWillTerminate:` follows at once, where
 //! winit ends the loop and `Windows::exiting` runs every window's `App::on_quit`, then its
-//! `on_close`.
+//! `on_close`. When a window has `App::should_quit`, it cancels the quit instead and has the
+//! loop ask (`Windows::ask_quit`), which quits as this would have when every window agrees: the
+//! answer may need the user, and the window's state lives in the loop. A logout, restart or
+//! shutdown doesn't ask: cancelling would interrupt it even when every window agrees.
 
 use std::cell::Cell;
 use std::ffi::{c_char, c_void};
 
 use objc2::runtime::{AnyClass, AnyObject, Bool, Sel};
-use objc2::{msg_send, sel};
+use objc2::{class, msg_send, sel};
 use objc2_app_kit::NSApplication;
 use objc2_foundation::MainThreadMarker;
 
 thread_local! {
     /// The delegate class Rune added the method to.
     static HOOKED: Cell<*const AnyClass> = const { Cell::new(std::ptr::null()) };
+    /// Wakes the loop to ask the windows' `App::should_quit`; false once the loop is gone.
+    static ASK: std::cell::RefCell<Option<Box<dyn Fn() -> bool>>> = const { std::cell::RefCell::new(None) };
 }
 
 unsafe extern "C" {
     fn class_addMethod(class: *const AnyClass, selector: Sel, implementation: *const c_void, types: *const c_char) -> Bool;
 }
 
+/// `NSTerminateCancel`.
+const TERMINATE_CANCEL: usize = 0;
 /// `NSTerminateNow`.
 const TERMINATE_NOW: usize = 1;
 
 extern "C" fn should_terminate(_: *mut AnyObject, _: Sel, _: *mut AnyObject) -> usize {
+    if super::asking() && !super::quitting() && !session_ends() && ASK.with(|ask| ask.borrow().as_ref().is_some_and(|ask| ask())) {
+        return TERMINATE_CANCEL;
+    }
     // Windows::exiting carries out the quit's effects.
     let _ = super::send(super::Event::Start { ending: false });
     TERMINATE_NOW
 }
 
-pub(super) fn install() {
+/// `keyAEQuitReason` (`'why?'`): the quit Apple event of a logout, restart or shutdown says why.
+const QUIT_REASON: u32 = u32::from_be_bytes(*b"why?");
+
+/// Whether the session is ending (logout, restart, shutdown) rather than the user quitting.
+fn session_ends() -> bool {
+    // SAFETY: Foundation calls on the main thread, where AppKit asks; each result is checked for
+    // nil before use.
+    unsafe {
+        let manager: *mut AnyObject = msg_send![class!(NSAppleEventManager), sharedAppleEventManager];
+        let Some(manager) = manager.as_ref() else { return false };
+        let event: *mut AnyObject = msg_send![manager, currentAppleEvent];
+        let Some(event) = event.as_ref() else { return false };
+        let why: *mut AnyObject = msg_send![event, attributeDescriptorForKeyword: QUIT_REASON];
+        !why.is_null()
+    }
+}
+
+pub(super) fn install(ask: impl Fn() -> bool + 'static) {
+    ASK.with(|slot| *slot.borrow_mut() = Some(Box::new(ask)));
     let Some(mtm) = MainThreadMarker::new() else { return };
     let app = NSApplication::sharedApplication(mtm);
     let selector = sel!(applicationShouldTerminate:);
