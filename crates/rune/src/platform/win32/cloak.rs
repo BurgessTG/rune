@@ -126,6 +126,7 @@ fn set(window: &winit::window::Window, cloaked: bool) -> bool {
 /// Brings the window to the foreground and gives it the focus, as a show that activates would.
 fn activate(window: &winit::window::Window) {
     let Some(hwnd) = super::hwnd(window) else { return };
+    if std::env::var_os("IB3_NO_ACTIVATE").is_some() { return; }
     // SAFETY: a window this thread owns; a launch by the user lets this process take the foreground.
     unsafe { windows_sys::Win32::UI::WindowsAndMessaging::SetForegroundWindow(hwnd); }
     crate::marks::mark("window.activated");
