@@ -392,6 +392,7 @@ struct Host<S: 'static> {
     spec: AppSpec<S>,
     args: Args,
     keep_running: bool,
+    should_close: Option<fn(&mut S, &mut Tx) -> bool>,
     on_close: Option<fn(&mut S, &mut Tx)>,
     on_quit: Option<fn(&mut S, &mut Tx)>,
     /// `App::turn_scope`, and whether a turn is in it now.
@@ -475,6 +476,7 @@ impl<S: 'static> Host<S> {
             let _ = proxy.send_event(WakeEvent::App(slot));
         });
         let (open, keep_running, on_close, release_gpu) = (app.open, app.keep_running, app.on_close, app.release_gpu);
+        let should_close = app.should_close;
         let (on_reopen, on_quit, turn_scope) = (app.on_reopen, app.on_quit, app.turn_scope);
         #[cfg(target_os = "macos")]
         let present_log = args.trace.as_ref().map(|_| Arc::default());
@@ -554,6 +556,7 @@ impl<S: 'static> Host<S> {
             spec,
             args,
             keep_running,
+            should_close,
             on_close,
             on_quit,
             turn_scope,

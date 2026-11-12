@@ -84,6 +84,7 @@ pub(crate) struct Window<S: 'static> {
     handle: Option<WindowHandle>,
     comp: Option<Box<dyn crate::compose::Compositor<S>>>,
     renderer: Option<Renderer>,
+    should_close: Option<fn(&mut S, &mut crate::Tx) -> bool>,
     on_close: Option<fn(&mut S, &mut crate::Tx)>,
     on_reopen: Option<fn(&mut S, bool, &mut crate::Tx) -> bool>,
     keep_running: bool,
@@ -118,6 +119,7 @@ impl<S: 'static> Window<S> {
         let own = app.resolve_args(inherited);
         let comp = app.compositor.take();
         let (open, keep_running, on_close, on_focus, on_reopen) = (app.open, app.keep_running, app.on_close, app.on_focus, app.on_reopen);
+        let should_close = app.should_close;
         let on_mods = app.on_mods;
         let on_ime = app.on_ime;
         let native = std::mem::take(&mut app.macos_window);
@@ -149,7 +151,7 @@ impl<S: 'static> Window<S> {
         shared.visible.store(visible, Ordering::Release);
         let decorated = !options.borderless && !options.transparent;
         Window {
-            key, rt, shared, shortcuts, menus, handle, comp, renderer: None, on_close, on_reopen, keep_running,
+            key, rt, shared, shortcuts, menus, handle, comp, renderer: None, should_close, on_close, on_reopen, keep_running,
             launcher: native.launcher,
             panel: native.nonactivating_panel,
             main,
@@ -210,6 +212,11 @@ impl<S: 'static> Window<S> {
 
     fn close(&mut self) {
         if !(self.visible || !self.keep_running) { return; }
+        if let Some(f) = self.should_close {
+            let mut may = true;
+            self.rt.update(|state, tx| may = f(state, tx));
+            if !may { return; }
+        }
         if let Some(f) = self.on_close { self.rt.update(f); }
         self.hide();
         if !self.keep_running {

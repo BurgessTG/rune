@@ -236,6 +236,7 @@ impl<S: 'static> Host<S> {
     }
 
     pub(super) fn close(&mut self, event_loop: &ActiveEventLoop) {
+        if self.closes() && !self.may_close() { return; }
         self.rt.minimize_request = false;
         if let Some(w) = &mut self.win {
             w.first_frame.hide();
@@ -264,6 +265,16 @@ impl<S: 'static> Host<S> {
             return;
         }
         self.hide(event_loop);
+    }
+
+    /// Asks `App::should_close`. A refusal leaves the window as it was, with a frame for what
+    /// the hook changed; what it asked of its `Tx` reaches the shell after that frame.
+    fn may_close(&mut self) -> bool {
+        let Some(f) = self.should_close else { return true };
+        let mut may = true;
+        self.rt.update(|state, tx| may = f(state, tx));
+        if !may && let Some(w) = self.win.as_ref().filter(|w| w.visible) { w.request_redraw(); }
+        may
     }
 
     /// Whether a close runs `on_close`: a window is shown, or hidden without `keep_running`.

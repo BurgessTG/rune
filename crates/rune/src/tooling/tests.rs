@@ -950,6 +950,8 @@ fn the_window_title_starts_from_the_spec_and_follows_set_title() {
 
 #[path = "playground_cli_tests.rs"]
 mod playground_cli;
+#[path = "should_close_tests.rs"]
+mod should_close;
 
 #[test]
 fn a_trace_says_how_far_scrolling_carries_an_element_when_that_changes() {

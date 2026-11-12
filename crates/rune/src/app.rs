@@ -64,6 +64,7 @@ pub struct App<S: 'static> {
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(crate) standard_menus: bool,
     pub(crate) keep_running: bool,
+    pub(crate) should_close: Option<fn(&mut S, &mut Tx) -> bool>,
     pub(crate) on_close: Option<fn(&mut S, &mut Tx)>,
     pub(crate) on_quit: Option<fn(&mut S, &mut Tx)>,
     pub(crate) turn_scope: Option<TurnScope<S>>,
@@ -119,6 +120,7 @@ impl<S: 'static> App<S> {
             accessory: false,
             standard_menus: false,
             keep_running: false,
+            should_close: None,
             on_close: None,
             on_quit: None,
             turn_scope: None,
@@ -396,6 +398,16 @@ impl<S: 'static> App<S> {
     /// asking. No effect on other platforms.
     pub fn standard_menus(mut self) -> Self {
         self.standard_menus = true;
+        self
+    }
+
+    /// Asked before the window closes alone (close button, ⌘W, `Tx::close_window`,
+    /// `AppHandle::close`): false keeps it open, exactly as it was, and `on_close` doesn't run,
+    /// so an app with unsaved work can ask first and close later (`Tx::quit`, or a close this
+    /// then allows). What it changes shows in the window's next frame. A quit doesn't ask
+    /// (`Tx::quit`, `AppHandle::quit`, macOS Quit, the session ending).
+    pub fn should_close(mut self, f: fn(&mut S, &mut Tx) -> bool) -> Self {
+        self.should_close = Some(f);
         self
     }
 

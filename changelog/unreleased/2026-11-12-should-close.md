@@ -1,0 +1,1 @@
+- **A window can refuse to close:** `App::should_close` runs before a close that isn't a quit (the close button, ⌘W, `Tx::close_window`, `AppHandle::close`). Returning false keeps the window open exactly as it was and `on_close` doesn't run, so an app with unsaved work can show its prompt without the window hiding first (#174).
