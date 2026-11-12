@@ -42,7 +42,21 @@ fn moving(hwnd: HWND) -> bool {
     MOVING.with(|m| m.borrow().contains(&(hwnd as usize)))
 }
 
+static T0: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+fn ib3_top(hwnd: HWND) -> bool { unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetWindowLongW(hwnd, windows_sys::Win32::UI::WindowsAndMessaging::GWL_EXSTYLE) as u32 & 8 != 0 } }
 unsafe extern "system" fn subclass(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM, _: usize, _: usize) -> LRESULT {
+    if (message == 0x46 || message == 0x47) && std::env::var_os("IB3_TOPMOST").is_some() {
+        let t = T0.get_or_init(std::time::Instant::now).elapsed().as_micros();
+        let pos = unsafe { &*(lparam as *const windows_sys::Win32::UI::WindowsAndMessaging::WINDOWPOS) };
+        let (after0, flags0) = (pos.hwndInsertAfter as isize, pos.flags);
+        let sent = unsafe { windows_sys::Win32::UI::WindowsAndMessaging::InSendMessageEx(std::ptr::null_mut()) };
+        let top0 = ib3_top(hwnd);
+        let result = unsafe { DefSubclassProc(hwnd, message, wparam, lparam) };
+        let pos = unsafe { &*(lparam as *const windows_sys::Win32::UI::WindowsAndMessaging::WINDOWPOS) };
+        let bt = if sent == 0 && flags0 & SWP_NOZORDER == 0 { format!("\n{}", std::backtrace::Backtrace::force_capture()) } else { String::new() };
+        eprintln!("ib3top {t} {} sent={sent:x} after={after0}->{} flags={flags0:x}->{:x} top {top0}->{}{bt}", if message == 0x46 { "CHANGING" } else { "CHANGED" }, pos.hwndInsertAfter as isize, pos.flags, ib3_top(hwnd));
+        return result;
+    }
     match message {
         WM_ENTERSIZEMOVE => MOVING.with(|m| m.borrow_mut().push(hwnd as usize)),
         WM_EXITSIZEMOVE => MOVING.with(|m| m.borrow_mut().retain(|&h| h != hwnd as usize)),
